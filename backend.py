@@ -1,27 +1,29 @@
 import mysql.connector
 from mysql.connector import Error
 import pandas as pd
-import json
+import io
+import sys
 
-# --- CONFIGURAÇÕES DO BANCO ---
-# CORREÇÃO DO ERRO 111:
-# Trocamos 'localhost' por '127.0.0.1' para forçar conexão via rede TCP.
+# Tenta importar a biblioteca de PDF
+try:
+    from pypdf import PdfReader
+except ImportError:
+    print("ERRO CRÍTICO: pypdf não instalado.")
+
+# --- CONFIGURAÇÃO ---
 DB_CONFIG = {
-    'host': '127.0.0.1',    # <--- MUDANÇA AQUI
-    'port': 3306,           # Garantindo a porta padrão
-    'user': 'gustavo',         # Se 'root' não funcionar, tente voltar para 'gustavo'
-    'password': '@2J5Mi19h',         # <--- SE O ROOT TIVER SENHA, PREENCHA AQUI. 
+    'host': '192.168.1.14', # Use o que funcionou anteriormente (127.0.0.1 ou o IP da rede)
+    'user': 'gustavo',
+    'password': '@2J5Mi19h', 
     'database': 'dbdeveloperbrightinventory'
 }
 
-
 def get_connection():
     try:
-        # connection_timeout=10 dá mais tempo para o banco responder
         connection = mysql.connector.connect(**DB_CONFIG, connection_timeout=10)
         return connection
     except Error as e:
-        print(f"ERRO CRÍTICO DE CONEXÃO: {e}")
+        print(f"Erro de conexão: {e}")
         return None
 
 def validar_conexao():
@@ -29,107 +31,106 @@ def validar_conexao():
     try:
         conn = get_connection()
         if conn and conn.is_connected():
-            return True, f"Conectado com sucesso em {DB_CONFIG['host']}!"
-        return False, "Banco não responde (Connection Refused)."
+            return True, f"Conectado ao banco em {DB_CONFIG['host']}!"
+        return False, "Banco não responde."
     except Error as e:
-        msg = str(e)
-        if "111" in msg or "Connection refused" in msg:
-            return False, "ERRO 111: O banco recusou a conexão. Verifique se o MySQL está rodando."
-        if "1045" in msg or "Access denied" in msg:
-            return False, "ERRO DE SENHA (1045): Usuário ou senha incorretos."
-        return False, f"Erro: {msg}"
+        return False, f"Erro: {str(e)}"
     finally:
         if conn and conn.is_connected():
             conn.close()
 
 def buscar_dados_aparatos():
-    print("--- Iniciando busca de dados ---")
     conn = get_connection()
     if not conn:
-        print("Abortando: Sem conexão.")
         return pd.DataFrame()
 
     cursor = conn.cursor()
 
+    # --- NOVA ESTRATÉGIA: FILTRO POR ID ---
+    # Pegamos apenas IDs que começam com os códigos de TI
     query = """
     SELECT 
         A.idAparato,
         A.valorAparato,
         A.observacao,
-        N.notaFiscal,        -- BLOB
-        N.dataEmissaoNota    -- Data
+        N.notaFiscal,        -- BLOB do PDF
+        N.dataEmissaoNota
     FROM 
         tableaparatos AS A
     INNER JOIN 
         tablenota AS N 
         ON A.nNotaAparato_fk = N.nNotaAparato
+    WHERE 
+        A.idAparato LIKE '010110%'  -- CPUs
+        OR 
+        A.idAparato LIKE '010121%'  -- Notebooks
     """
 
     try:
         cursor.execute(query)
         resultados = cursor.fetchall()
-        print(f"Query executada. Linhas retornadas: {len(resultados)}")
+        print(f"Query executada. Itens de TI encontrados pelo código: {len(resultados)}")
     except Error as e:
-        print(f"ERRO DE SQL: {e}")
+        print(f"Erro SQL: {e}")
         conn.close()
         return pd.DataFrame()
 
-    lista_produtos = []
-
+    lista_processada = []
+    
     for linha in resultados:
-        # Extração segura
         id_aparato = linha[0]
+        valor_tab = linha[1]
+        obs = linha[2]
         blob_data = linha[3]
-        
-        if blob_data is None:
-            continue
+        data_emissao = linha[4]
 
-        try:
-            # Tenta decodificar o BLOB
-            if isinstance(blob_data, (bytes, bytearray)):
-                json_str = blob_data.decode('utf-8', errors='ignore') 
-            else:
-                json_str = str(blob_data)
+        # 1. Identifica o Tipo pelo Código
+        tipo_equipamento = "Desconhecido"
+        if str(id_aparato).startswith("010110"):
+            tipo_equipamento = "CPU / Desktop"
+        elif str(id_aparato).startswith("010121"):
+            tipo_equipamento = "Notebook"
 
-            if not json_str.strip(): 
-                continue
+        # 2. Tenta extrair texto do PDF (Apenas para exibir detalhes, não para filtrar)
+        texto_pdf = "(PDF não legível ou imagem)"
+        if blob_data:
+            try:
+                arquivo_memoria = io.BytesIO(blob_data)
+                leitor = PdfReader(arquivo_memoria)
                 
-            dados_nota = json.loads(json_str)
+                # Tenta pegar texto das primeiras páginas
+                texto_extraido = ""
+                for i, pagina in enumerate(leitor.pages):
+                    if i > 2: break # Lê no máximo 3 páginas para não ficar lento
+                    t = pagina.extract_text()
+                    if t: texto_extraido += t + "\n"
+                
+                if texto_extraido.strip():
+                    texto_pdf = texto_extraido[:500] + "..." # Guarda um resumo
+            except Exception:
+                pass # Se der erro no PDF, mantém o texto padrão, mas não perde o item
 
-            # Busca flexível
-            itens_verificar = []
-            if isinstance(dados_nota, list):
-                itens_verificar = dados_nota
-            elif isinstance(dados_nota, dict):
-                itens_verificar = dados_nota.get('itens', dados_nota.get('produtos', [dados_nota]))
-
-            for item in itens_verificar:
-                if isinstance(item, dict):
-                    nome = item.get('descricao', item.get('nome', item.get('produto', ''))).lower()
-                    
-                    if any(x in nome for x in ['notebook', 'computador', 'pc', 'desktop', 'dell', 'hp', 'lenovo']):
-                        lista_produtos.append({
-                            "ID": id_aparato,
-                            "Produto": item.get('descricao', item.get('nome')),
-                            "Valor Tabela": linha[1],
-                            "Data": linha[4],
-                            "JSON Bruto": dados_nota
-                        })
-                        
-        except Exception as e:
-            # print(f"Erro ao processar linha: {e}") # Comentado para não poluir
-            continue
+        # Adiciona à lista final (Garantido, pois o filtro foi pelo ID)
+        lista_processada.append({
+            "ID Aparato": id_aparato,
+            "Tipo": tipo_equipamento,
+            "Valor Tabela": valor_tab,
+            "Data Emissão": data_emissao,
+            "Observação": obs,
+            "Resumo da Nota (PDF)": texto_pdf
+        })
 
     conn.close()
-    print(f"Itens de informática encontrados: {len(lista_produtos)}")
-    return pd.DataFrame(lista_produtos)
+    return pd.DataFrame(lista_processada)
 
 if __name__ == "__main__":
+    # Teste rápido de terminal
     ok, msg = validar_conexao()
-    print(msg)
     if ok:
         df = buscar_dados_aparatos()
         if not df.empty:
-            print(df.head())
+            print(df[['ID Aparato', 'Tipo', 'Resumo da Nota (PDF)']].head())
         else:
-            print("Conectou, mas nenhum notebook/PC foi encontrado nos JSONs.")
+            print("Nenhum item encontrado com os códigos 010110... ou 010121...")
+    else:
+        print(msg)
