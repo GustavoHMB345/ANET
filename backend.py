@@ -4,125 +4,132 @@ import pandas as pd
 import json
 
 # --- CONFIGURAÇÕES DO BANCO ---
+# CORREÇÃO DO ERRO 111:
+# Trocamos 'localhost' por '127.0.0.1' para forçar conexão via rede TCP.
 DB_CONFIG = {
-    'host': 'localhost',
-    'user': 'gustavo',
-    'password': '@2J5Mi19h',  
+    'host': '127.0.0.1',    # <--- MUDANÇA AQUI
+    'port': 3306,           # Garantindo a porta padrão
+    'user': 'gustavo',         # Se 'root' não funcionar, tente voltar para 'gustavo'
+    'password': '@2J5Mi19h',         # <--- SE O ROOT TIVER SENHA, PREENCHA AQUI. 
     'database': 'dbdeveloperbrightinventory'
 }
 
+
 def get_connection():
-    """Conecta ao banco de dados."""
     try:
-        connection = mysql.connector.connect(**DB_CONFIG)
+        # connection_timeout=10 dá mais tempo para o banco responder
+        connection = mysql.connector.connect(**DB_CONFIG, connection_timeout=10)
         return connection
     except Error as e:
-        print(f"Erro de conexão: {e}")
+        print(f"ERRO CRÍTICO DE CONEXÃO: {e}")
         return None
 
 def validar_conexao():
-    """Testa se o banco está respondendo."""
     conn = None
     try:
         conn = get_connection()
         if conn and conn.is_connected():
-            return True, "Banco de Dados Conectado!"
-        return False, "Banco não responde."
+            return True, f"Conectado com sucesso em {DB_CONFIG['host']}!"
+        return False, "Banco não responde (Connection Refused)."
     except Error as e:
-        return False, f"Erro: {str(e)}"
+        msg = str(e)
+        if "111" in msg or "Connection refused" in msg:
+            return False, "ERRO 111: O banco recusou a conexão. Verifique se o MySQL está rodando."
+        if "1045" in msg or "Access denied" in msg:
+            return False, "ERRO DE SENHA (1045): Usuário ou senha incorretos."
+        return False, f"Erro: {msg}"
     finally:
         if conn and conn.is_connected():
             conn.close()
 
 def buscar_dados_aparatos():
+    print("--- Iniciando busca de dados ---")
     conn = get_connection()
     if not conn:
+        print("Abortando: Sem conexão.")
         return pd.DataFrame()
 
     cursor = conn.cursor()
 
-    # --- QUERY CORRIGIDA COM BASE NAS IMAGENS ---
-    # 1. Tabela 'tablenota'
-    # 2. Chave 'nNotaAparato'
-    # 3. Coluna BLOB 'notaFiscal'
-    
     query = """
     SELECT 
         A.idAparato,
         A.valorAparato,
         A.observacao,
-        N.notaFiscal,        -- Nome correto da coluna do BLOB
-        N.dataEmissaoNota    -- Aproveitei para pegar a data também
+        N.notaFiscal,        -- BLOB
+        N.dataEmissaoNota    -- Data
     FROM 
         tableaparatos AS A
     INNER JOIN 
         tablenota AS N 
-        ON A.nNotaAparato_fk = N.nNotaAparato -- Ligação correta das chaves
+        ON A.nNotaAparato_fk = N.nNotaAparato
     """
 
     try:
         cursor.execute(query)
         resultados = cursor.fetchall()
+        print(f"Query executada. Linhas retornadas: {len(resultados)}")
     except Error as e:
-        print(f"Erro na Query SQL: {e}")
+        print(f"ERRO DE SQL: {e}")
         conn.close()
         return pd.DataFrame()
 
-    lista_produtos_processados = []
+    lista_produtos = []
 
     for linha in resultados:
+        # Extração segura
         id_aparato = linha[0]
-        valor_tabela = linha[1]
-        observacao = linha[2]
-        blob_data = linha[3]     # O conteúdo binário da nota
-        data_emissao = linha[4]
-
+        blob_data = linha[3]
+        
         if blob_data is None:
             continue
 
         try:
-            # 1. Decodificar Binário -> Texto
+            # Tenta decodificar o BLOB
             if isinstance(blob_data, (bytes, bytearray)):
-                json_str = blob_data.decode('utf-8')
+                json_str = blob_data.decode('utf-8', errors='ignore') 
             else:
                 json_str = str(blob_data)
 
-            # 2. Texto -> JSON
+            if not json_str.strip(): 
+                continue
+                
             dados_nota = json.loads(json_str)
 
-            # 3. Normalizar estrutura (Lista ou Dict)
-            # Verifica se o JSON é uma lista direta ou um dicionário com chave 'itens'
+            # Busca flexível
             itens_verificar = []
             if isinstance(dados_nota, list):
                 itens_verificar = dados_nota
             elif isinstance(dados_nota, dict):
-                # Tenta achar chaves comuns de listas de produtos
-                # Adicionei 'detalhes' e 'items' que são comuns também
-                itens_verificar = dados_nota.get('itens', 
-                                  dados_nota.get('produtos', 
-                                  dados_nota.get('detalhes', [dados_nota])))
+                itens_verificar = dados_nota.get('itens', dados_nota.get('produtos', [dados_nota]))
 
-            # 4. Filtro de Hardware (Notebook/PC)
             for item in itens_verificar:
                 if isinstance(item, dict):
-                    # Pega descrição ou nome
-                    descricao = item.get('descricao', item.get('nome', item.get('produto', ''))).lower()
+                    nome = item.get('descricao', item.get('nome', item.get('produto', ''))).lower()
                     
-                    termos = ['notebook', 'computador', 'pc', 'desktop', 'macbook', 'dell', 'lenovo', 'hp', 'samsung']
-                    
-                    if any(t in descricao for t in termos):
-                        lista_produtos_processados.append({
-                            "ID Aparato": id_aparato,
-                            "Produto (JSON)": item.get('descricao', item.get('nome')),
-                            "Valor Nota": item.get('valor', item.get('preco', 0)),
-                            "Data Emissão": data_emissao,
-                            "Observação": observacao,
-                            "Dados Completos": dados_nota # Para exibir o JSON bruto se clicar
+                    if any(x in nome for x in ['notebook', 'computador', 'pc', 'desktop', 'dell', 'hp', 'lenovo']):
+                        lista_produtos.append({
+                            "ID": id_aparato,
+                            "Produto": item.get('descricao', item.get('nome')),
+                            "Valor Tabela": linha[1],
+                            "Data": linha[4],
+                            "JSON Bruto": dados_nota
                         })
-
+                        
         except Exception as e:
-            # Pula silenciosamente erros de JSON inválido para não travar a tela
+            # print(f"Erro ao processar linha: {e}") # Comentado para não poluir
             continue
 
     conn.close()
-    return pd.DataFrame(lista_produtos_processados)
+    print(f"Itens de informática encontrados: {len(lista_produtos)}")
+    return pd.DataFrame(lista_produtos)
+
+if __name__ == "__main__":
+    ok, msg = validar_conexao()
+    print(msg)
+    if ok:
+        df = buscar_dados_aparatos()
+        if not df.empty:
+            print(df.head())
+        else:
+            print("Conectou, mas nenhum notebook/PC foi encontrado nos JSONs.")
