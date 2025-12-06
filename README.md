@@ -1,4 +1,4 @@
-# 📦 Sistema de Importação e Análise de Aparatos (JSON/BLOB)
+# 📦 A.N.E.T Análise de equipamentos tecnológicos (JSON/BLOB)
 
 Este projeto é uma aplicação de **Engenharia de Dados e Visualização** desenvolvida em Python. O sistema conecta-se a um banco de dados MySQL, extrai Notas Fiscais armazenadas em formato binário (`BLOB`), decodifica o conteúdo JSON e filtra automaticamente equipamentos de informática (Notebooks e Computadores) para exibição em um dashboard interativo.
 
