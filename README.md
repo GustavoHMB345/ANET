@@ -30,3 +30,6 @@ Antes de começar, certifique-se de ter instalado:
    ```bash
    git clone [https://github.com/seu-usuario/seu-projeto.git](https://github.com/seu-usuario/seu-projeto.git)
    cd seu-projeto
+
+
+   .
