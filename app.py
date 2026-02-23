@@ -69,10 +69,10 @@ with col_lista:
         
         # --- TABELA INTERATIVA ---
         # Mostra apenas as colunas que interessam.
-        # use_container_width=True faz a tabela esticar até a borda da coluna.
+        # width='stretch' faz a tabela ocupar toda a largura disponível.
         st.dataframe(
             df[['ID Aparato', 'Tipo', 'Nota Fiscal']], 
-            use_container_width=True, 
+            width='stretch', 
             height=300
         )
         

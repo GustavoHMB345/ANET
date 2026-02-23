@@ -11,7 +11,7 @@ DB_CONFIG = {
     'host': '192.168.1.14',              # O endereço IP onde o banco está
     'user': 'gustavo',                   # O usuário
     'password': '@2J5Mi19h',             # A senha
-    'database': 'dbdeveloperbrightinventory' # O nome do banco de dados
+    'database': 'dbbrightinventory'      # O nome do banco de dados (corrigido conforme sua última mensagem)
 }
 
 def get_connection():
@@ -39,13 +39,26 @@ def buscar_lista_resumida():
     cursor = conn.cursor()
     
     # 3. Escreve a pergunta (Query) para o banco:
+    # ATENÇÃO AQUI: Adicionamos todas as colunas da sua imagem na ordem exata.
     query = """
     SELECT 
-        A.idAparato,        -- Pega o Código (ex: 010121.500)
-        A.nNotaAparato_fk,  -- Pega o número da nota (chave estrangeira)
-        A.valorAparato,     -- Pega o valor
-        A.observacao,       -- Pega observações
-        N.dataEmissaoNota   -- Pega a data (vem da outra tabela 'N')
+        A.idAparato,          -- Índice 0
+        A.ordem,              -- Índice 1
+        A.idEquipamento_fk,   -- Índice 2
+        A.idMarca_fk,         -- Índice 3
+        A.dataCompra,         -- Índice 4
+        A.idLocalCompra_fk,   -- Índice 5
+        A.idPredio_fk,        -- Índice 6
+        A.idSetor_fk,         -- Índice 7
+        A.idSala_fk,          -- Índice 8
+        A.idLocalAlocado_fk,  -- Índice 9
+        A.nNotaAparato_fk,    -- Índice 10 (Chave estrangeira da nota)
+        A.valorAparato,       -- Índice 11
+        A.situacao,           -- Índice 12
+        A.observacao,         -- Índice 13
+        A.licenca,            -- Índice 14
+        A.grupoAdd,           -- Índice 15
+        N.dataEmissaoNota     -- Índice 16 (Vem da tabela de notas 'N')
     FROM tableaparatos A    -- Da tabela de aparatos (apelidada de A)
     INNER JOIN tablenota N  -- Junte com a tabela de notas (apelidada de N)
         ON A.nNotaAparato_fk = N.nNotaAparato -- Onde os números das notas batem
@@ -68,14 +81,27 @@ def buscar_lista_resumida():
             # r[0] é a primeira coluna (idAparato)
             tipo = "Notebook" if str(r[0]).startswith("010121") else "CPU/Desktop"
             
-            # Adiciona um dicionário limpo na lista
+            # Adiciona um dicionário limpo na lista mapeando os índices numéricos
+            # para nomes bonitos que aparecerão no Streamlit
             lista.append({
                 "ID Aparato": r[0],
                 "Tipo": tipo,
-                "Nota Fiscal": r[1],
-                "Valor": r[2],
-                "Data": r[4],
-                "Obs": r[3]
+                "Ordem": r[1],
+                "ID Equipamento": r[2],
+                "ID Marca": r[3],
+                "Data da Compra": r[4],
+                "ID Local Compra": r[5],
+                "ID Prédio": r[6],
+                "ID Setor": r[7],
+                "ID Sala": r[8],
+                "ID Local Alocado": r[9],
+                "Nota Fiscal": r[10],
+                "Valor": r[11],
+                "Situação": r[12],
+                "Obs": r[13],
+                "Licença": r[14],
+                "Grupo Add": r[15],
+                "Data Emissão NF": r[16]
             })
             
         # 7. Transforma a lista de dicionários em um DataFrame do Pandas
@@ -86,7 +112,8 @@ def buscar_lista_resumida():
         return pd.DataFrame()
     finally:
         # 8. Fecha a conexão. Muito importante para não travar o banco!
-        conn.close()
+        if conn and conn.is_connected():
+            conn.close()
 
 def buscar_blob_nota(id_aparato):
     """
@@ -122,5 +149,6 @@ def buscar_blob_nota(id_aparato):
     except Error as e:
         print(f"Erro BLOB: {e}")
     finally:
-        conn.close()
+        if conn and conn.is_connected():
+            conn.close()
     return None
