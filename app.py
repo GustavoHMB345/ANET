@@ -68,10 +68,10 @@ with col_lista:
         st.divider() # Desenha uma linha horizontal cinza
         
         # --- TABELA INTERATIVA ---
-        # Mostra apenas as colunas que interessam.
-        # width='stretch' faz a tabela ocupar toda a largura disponível.
+        # Removi o filtro de colunas para exibir TODAS as colunas retornadas pelo backend.
+        # O Streamlit cria automaticamente a barra de rolagem horizontal.
         st.dataframe(
-            df[['ID Aparato', 'Tipo', 'Nota Fiscal']], 
+            df, 
             width='stretch', 
             height=300
         )

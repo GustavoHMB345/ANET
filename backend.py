@@ -57,8 +57,7 @@ def buscar_lista_resumida():
         A.situacao,           -- Índice 12
         A.observacao,         -- Índice 13
         A.licenca,            -- Índice 14
-        A.grupoAdd,           -- Índice 15
-        N.dataEmissaoNota     -- Índice 16 (Vem da tabela de notas 'N')
+        N.dataEmissaoNota     -- Índice 15 (Vem da tabela de notas 'N')
     FROM tableaparatos A    -- Da tabela de aparatos (apelidada de A)
     INNER JOIN tablenota N  -- Junte com a tabela de notas (apelidada de N)
         ON A.nNotaAparato_fk = N.nNotaAparato -- Onde os números das notas batem
@@ -100,8 +99,7 @@ def buscar_lista_resumida():
                 "Situação": r[12],
                 "Obs": r[13],
                 "Licença": r[14],
-                "Grupo Add": r[15],
-                "Data Emissão NF": r[16]
+                "Data Emissão NF": r[15]
             })
             
         # 7. Transforma a lista de dicionários em um DataFrame do Pandas
